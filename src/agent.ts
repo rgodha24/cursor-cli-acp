@@ -44,7 +44,7 @@ export class CursorAgent implements Agent {
       protocolVersion: PROTOCOL_VERSION,
       agentInfo: {
         name: "cursor-cli-acp",
-        version: "0.1.1",
+        version: "0.1.2",
       },
       agentCapabilities: {
         loadSession: true,
@@ -205,6 +205,11 @@ export class CursorAgent implements Agent {
     }
 
     if (type === "assistant") {
+      // cursor-agent sends each assistant message twice: once with timestamp_ms (streaming)
+      // and once without (final accumulated duplicate). Skip the duplicate.
+      if (!("timestamp_ms" in event)) {
+        return;
+      }
       for (const chunk of getAssistantTextChunks(event)) {
         if (!chunk) {
           continue;
@@ -326,10 +331,21 @@ function getToolCallTitle(event: CursorStreamEvent): string {
     return `Running: ${directCommand}`;
   }
 
-  const shellToolCall = isRecord(event.shellToolCall) ? event.shellToolCall : undefined;
-  const shellCommand = shellToolCall ? readString(shellToolCall, "command") : undefined;
-  if (shellCommand) {
-    return `Running: ${shellCommand}`;
+  // cursor-agent structure: event.tool_call.shellToolCall.args.command
+  const toolCall = isRecord(event.tool_call) ? event.tool_call : undefined;
+  if (toolCall) {
+    const shellToolCall = isRecord(toolCall.shellToolCall) ? toolCall.shellToolCall : undefined;
+    if (shellToolCall) {
+      const args = isRecord(shellToolCall.args) ? shellToolCall.args : undefined;
+      const command = args ? readString(args, "command") : undefined;
+      if (command) {
+        return `Running: ${command}`;
+      }
+      const description = readString(shellToolCall, "description");
+      if (description) {
+        return description;
+      }
+    }
   }
 
   return "Running cursor tool call";

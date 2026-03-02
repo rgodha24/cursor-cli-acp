@@ -35,7 +35,7 @@ export class CursorBridge {
     return stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .filter(Boolean)
+      .filter((line) => line.includes(" - "))
       .map((line) => {
         const [modelId, ...rest] = line.split(" - ");
         return {
