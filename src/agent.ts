@@ -44,7 +44,7 @@ export class CursorAgent implements Agent {
       protocolVersion: PROTOCOL_VERSION,
       agentInfo: {
         name: "cursor-cli-acp",
-        version: "0.1.0",
+        version: "0.1.1",
       },
       agentCapabilities: {
         loadSession: true,
@@ -112,11 +112,10 @@ export class CursorAgent implements Agent {
       .map((block) => block.text)
       .join("\n");
 
-    let streamedAnyAssistantText = false;
     const startedToolCalls = new Set<string>();
 
     try {
-      const result = await this.cursor.streamPrompt({
+      await this.cursor.streamPrompt({
         cwd: session.cwd,
         chatId: session.chatId,
         model: session.model,
@@ -127,24 +126,8 @@ export class CursorAgent implements Agent {
             throw new Error("aborted");
           }
           await this.forwardChunk(params.sessionId, event, startedToolCalls);
-          if (hasAssistantText(event)) {
-            streamedAnyAssistantText = true;
-          }
         },
       });
-
-      if (!streamedAnyAssistantText && result.text) {
-        await this.conn.sessionUpdate({
-          sessionId: params.sessionId,
-          update: {
-            sessionUpdate: "agent_message_chunk",
-            content: {
-              type: "text",
-              text: result.text,
-            },
-          },
-        });
-      }
 
       this.sessions.update(params.sessionId, {});
       return { stopReason: "end_turn" };
@@ -300,10 +283,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readString(obj: Record<string, unknown>, key: string): string | undefined {
   const value = obj[key];
   return typeof value === "string" ? value : undefined;
-}
-
-function hasAssistantText(event: CursorStreamEvent): boolean {
-  return getAssistantTextChunks(event).length > 0;
 }
 
 function getAssistantTextChunks(event: CursorStreamEvent): string[] {
