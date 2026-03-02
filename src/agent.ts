@@ -119,6 +119,7 @@ export class CursorAgent implements Agent {
       .join("\n");
 
     const startedToolCalls = new Set<string>();
+    let lastAssistantText: string | undefined;
 
     try {
       await this.cursor.streamPrompt({
@@ -131,7 +132,9 @@ export class CursorAgent implements Agent {
           if (abortController.signal.aborted) {
             throw new Error("aborted");
           }
-          await this.forwardChunk(params.sessionId, event, startedToolCalls);
+          await this.forwardChunk(params.sessionId, event, startedToolCalls, lastAssistantText, (text) => {
+            lastAssistantText = text;
+          });
         },
       });
 
@@ -187,7 +190,13 @@ export class CursorAgent implements Agent {
     };
   }
 
-  private async forwardChunk(sessionId: string, event: CursorStreamEvent, startedToolCalls: Set<string>): Promise<void> {
+  private async forwardChunk(
+    sessionId: string,
+    event: CursorStreamEvent,
+    startedToolCalls: Set<string>,
+    lastAssistantText: string | undefined,
+    setLastAssistantText: (text: string) => void,
+  ): Promise<void> {
     const type = readString(event, "type");
     if (!type) {
       return;
@@ -216,7 +225,20 @@ export class CursorAgent implements Agent {
       if (!("timestamp_ms" in event)) {
         return;
       }
-      for (const chunk of getAssistantTextChunks(event)) {
+
+      const chunks = getAssistantTextChunks(event);
+      const joinedText = chunks.join("");
+
+      // cursor-agent also sends a duplicate assistant event with model_call_id attached
+      // right before tool calls, with the same text as the preceding streaming delta.
+      // Skip it if it matches the last assistant text we forwarded.
+      if ("model_call_id" in event && joinedText === lastAssistantText) {
+        return;
+      }
+
+      setLastAssistantText(joinedText);
+
+      for (const chunk of chunks) {
         if (!chunk) {
           continue;
         }
